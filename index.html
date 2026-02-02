@@ -3,237 +3,175 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>หน้าจอครัว</title>
+  <title>หน้าจอครัว - นักซิ่ง (ระบบเรียงตามคิว)</title>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
   <style>
     html { touch-action: manipulation; }
-    body { font-family: Arial, sans-serif; background-color: #f4f4f4; font-size: 18px; text-align: center; margin: 0; padding: 10px; }
-    #totalOrders { display: none !important; }
-    h2 { color: #333; font-size: 28px; margin-bottom: 15px; }
-    #kitchenDisplay { display: block !important; width: 100%; max-width: 1200px; margin: 0 auto; border-radius: 10px; }
-    .kitchen-sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; }
-    .chef-section { background-color: white; padding: 15px; border-radius: 8px; text-align: left; }
-    .chef-section h3 { color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 8px; margin-top: 0; margin-bottom: 10px; font-size: 24px; text-align: center; }
-    .chef-orders { min-height: 80px; }
-    .chef-summary { font-size: 20px; font-weight: 500; color: #212529; margin-bottom: 8px; line-height: 1.4; padding: 10px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; text-align: left; display: block; word-wrap: break-word; }
-    #connectionStatus { position: fixed; top: 5px; right: 5px; padding: 3px 8px; border-radius: 5px; font-size: 10px; z-index: 1000; display: block !important; }
-    .connected { background-color: #4CAF50; color: white; }
-    .disconnected { background-color: #f44336; color: white; }
-    @media (min-width: 768px) { /* Desktop styles for larger text */
-        body { font-size: 24px; padding: 15px; }
-        h2 { font-size: 36px; margin-bottom: 20px; }
-        .chef-section { padding: 20px; }
-        .chef-section h3 { font-size: 28px; padding-bottom: 10px; margin-bottom: 15px;}
-        .chef-summary { font-size: 24px; margin-bottom: 10px; padding: 12px; }
-         #connectionStatus {font-size: 12px; padding: 5px 10px;}
+    body { font-family: 'Tahoma', sans-serif; background-color: #f0f2f5; color: #000; margin: 0; padding: 10px; }
+    
+    #syncStatusBar { position: fixed; top: 0; left: 0; right: 0; height: 35px; background: #27ae60; color: white; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: bold; z-index: 1001; }
+    #syncStatusBar.offline { background: #c0392b; }
+
+    .controls { margin: 45px 0 15px; background: #ffffff; padding: 15px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+    .chef-selector { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+    .selector-btn { padding: 12px 20px; font-size: 20px; font-weight: bold; border: 3px solid #ddd; border-radius: 10px; cursor: pointer; background: #f8f9fa; color: #555; transition: 0.2s; flex: 1; min-width: 100px; }
+    .selector-btn.active { background: #007bff; color: white; border-color: #0056b3; box-shadow: 0 4px 12px rgba(0,123,255,0.3); }
+
+    .kitchen-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 15px; margin-top: 10px; }
+    .chef-column { background: #ffffff; border-radius: 20px; padding: 15px; min-height: 500px; border: 2px solid #dee2e6; box-shadow: 0 6px 15px rgba(0,0,0,0.05); }
+    .chef-column h3 { text-align: center; font-size: 32px; margin: 0 0 15px 0; padding-bottom: 10px; border-bottom: 4px solid #007bff; color: #007bff; }
+
+    .order-card { 
+      background: #ffffff; margin-bottom: 12px; padding: 20px; border-radius: 15px; 
+      cursor: pointer; border: 3px solid #eee; border-left: 15px solid #007bff; 
+      transition: 0.1s; position: relative;
     }
+    
+    .order-info { font-size: 28px; font-weight: 900; color: #000; line-height: 1.2; text-align: left; }
+    
+    /* สถานะเสร็จแล้ว */
+    .order-card.ready { background: #e8f5e9; border-left-color: #27ae60; border-style: dashed; opacity: 0.5; }
+    .order-card.ready .order-info { text-decoration: line-through; color: #2e7d32; }
+    .ready-badge { float: right; background: #27ae60; color: white; font-size: 18px; padding: 5px 12px; border-radius: 50px; font-weight: bold; margin-top: -5px; }
+
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
-  <div id="connectionStatus">Loading...</div>
-  <h2>หน้าจอครัว</h2>
-  <div id="kitchenDisplay">
-    <div class="kitchen-sections">
-      
-      <div class="chef-section"><h3>เจี๊ยบ</h3><div id="chef-jeab" class="chef-orders"></div></div>
-      
+  <div id="syncStatusBar"><span id="syncStatusText">กำลังเชื่อมต่อ...</span></div>
+  <div class="controls">
+    <div class="chef-selector">
+      <button class="selector-btn active" onclick="toggleChef('kik', this)">กิ๊ก</button>
+      <button class="selector-btn active" onclick="toggleChef('jeab', this)">เจี๊ยบ</button>
+      <button class="selector-btn active" onclick="toggleChef('nan', this)">พลโท</button>
+      <button class="selector-btn active" onclick="toggleChef('see', this)">ซี</button>
     </div>
   </div>
-  <div id="totalOrders" style="display: none !important;"></div>
+
+  <div class="kitchen-grid" id="kitchenGrid">
+    <div class="chef-column" id="col-kik"><h3>กิ๊ก</h3><div id="list-kik"></div></div>
+    <div class="chef-column" id="col-jeab"><h3>เจี๊ยบ</h3><div id="list-jeab"></div></div>
+    <div class="chef-column" id="col-nan"><h3>พลโท</h3><div id="list-nan"></div></div>
+    <div class="chef-column" id="col-see"><h3>ซี</h3><div id="list-see"></div></div>
+  </div>
 
   <script>
-  
-   // Firebase configuration
-   
-const firebaseConfig = {
-  apiKey: "AIzaSyDskwJlUNbr3zkKnyY_-n582PdoCrts2AE",
-  authDomain: "supertest01-55ac2.firebaseapp.com",
-  databaseURL: "https://supertest01-55ac2-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "supertest01-55ac2",
-  storageBucket: "supertest01-55ac2.firebasestorage.app",
-  messagingSenderId: "846236839338",
-  appId: "1:846236839338:web:260ca9b6af72c69837cfd3",
-  measurementId: "G-F26Z20XG62"
-};
-
+    const firebaseConfig = {
+      apiKey: "AIzaSyDskwJlUNbr3zkKnyY_-n582PdoCrts2AE",
+      authDomain: "supertest01-55ac2.firebaseapp.com",
+      databaseURL: "https://supertest01-55ac2-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "supertest01-55ac2",
+      storageBucket: "supertest01-55ac2.firebasestorage.app",
+      messagingSenderId: "846236839338",
+      appId: "1:846236839338:web:260ca9b6af72c69837cfd3"
+    };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
+    const BASE_PATH = "racing_order_app/";
 
-    const connectionStatusEl = document.getElementById('connectionStatus');
-    db.ref(".info/connected").on("value", (snap) => {
-      console.log("Firebase connection status:", snap.val());
-      if (connectionStatusEl) {
-        connectionStatusEl.textContent = snap.val() ? "เชื่อมต่อแล้ว" : "ไม่มีการเชื่อมต่อ";
-        connectionStatusEl.className = snap.val() ? "connected" : "disconnected";
+    const chefMenus = {
+      'kik':['ต้มแซ่บ','คั่ว','ผักหวาน','แป๊ะซะ','แวะถัวะ','ผัดเผ็ด','อ่อม','แกงป่าผัก','แกงป่าหน่อไม้ดอง','แกงป่าหน่อไม้สด','บอน','มะรุม','กระบุก','แกงไก่หน่อ','แกงหมูหน่อ','แกงเนื้อหน่อ','แกงปลา','ผัดฉ่า','ปลาร้า','ไก่น้ำปลา','สามชั้น','หมูน้ำปลา','โสม','ผักหวานเห็ดเผาะ','ผักหวานไข่มดแดงใส่เห็ดเผาะ'],
+      'jeab':['ไข่เจียว','แกงหอย','พิเศษ','ทอง','แถม','หมกหม้อ','ขี้เหล็ก','ต้มจืด','ทอดมัน','หมกปลานิล','ไก่หลงทาง'],
+      'nan':['ขาหมู','ข้าว','ขนม','นึ่ง'],
+      'see':['ลาบ','ปลาเนื้ออ่อน','ปลานิลแดดเดียว','สมุนไพร','สะเดาน้ำปลาหวาน','ตำ']
+    };
+
+    // รายการเมนูที่ "ห้ามรวมยอด" ต้องแยกใบ (ก๊อปปี้จาก index)
+    const nonBatchableMenuItems = ['ปลาช่อนแป๊ะซะ','ปลาช่อนแวะถัวะ','อ่อมหมู','ผักหวานไข่มดแดง','ผักหวาน','ผักหวานเห็ดเผาะ','ผักหวานไข่มดแดงใส่เห็ดเผาะ','ไข่เจียวบาว','ไข่เจียวธรรมดา','ไข่เจียวหมูสับ','ไข่เจียวไข่มดแดง'];
+
+    let activeChefs = ['kik', 'jeab', 'nan', 'see'];
+    let currentOrders = [];
+
+    function toggleChef(chef, btn) {
+      if (activeChefs.includes(chef)) {
+        activeChefs = activeChefs.filter(c => c !== chef);
+        btn.classList.remove('active');
+        document.getElementById('col-' + chef).classList.add('hidden');
+      } else {
+        activeChefs.push(chef);
+        btn.classList.add('active');
+        document.getElementById('col-' + chef).classList.remove('hidden');
       }
-    });
-
-    const chefMenus={'kik':['ต้มแซ่บ','คั่ว','ผักหวาน','แป๊ะซะ','แวะถัวะ','ผัดเผ็ด','อ่อม','แกงป่าผัก','แกงป่าหน่อไม้ดอง','แกงป่าหน่อไม้สด','บอน','มะรุม','กระบุก','แกงไก่หน่อ','แกงหมูหน่อ','แกงเนื้อหน่อ','แกงปลา','ผัดฉ่า','ปลาร้า','ไก่น้ำปลา','สามชั้น','หมูน้ำปลา','โสม','ผักหวานเห็ดเผาะ','ผักหวานไข่มดแดงใส่เห็ดเผาะ'],'jeab':['ไข่เจียว','แกงหอย','พิเศษ','ทอง','แถม','หมกหม้อ','ขี้เหล็ก','ต้มจืด','ทอดมัน','หมกปลานิล','ไก่หลงทาง'],'nan':['ขาหมู','ข้าว','ขนม'],'see':['ลาบ','ปลาเนื้ออ่อน','ปลานิลแดดเดียว','นึ่ง','สมุนไพร','สะเดาน้ำปลาหวาน']};
-	const nonBatchableMenuItems=['ปลาช่อนแป๊ะซะ','ปลาช่อนแวะถัวะ','อ่อมหมู','ผักหวานไข่มดแดง','ผักหวาน','ผักหวานเห็ดเผาะ','ผักหวานไข่มดแดงใส่เห็ดเผาะ'];
-    let orders = [];
-
-    window.addEventListener('load', () => {
-      console.log("kitchen.html: Page loaded.");
-      const ordersRef = db.ref('orders');
-
-      ordersRef.on('value', (snapshot) => {
-        if (snapshot.exists()) {
-          orders = snapshot.val() || [];
-          console.log("kitchen.html: Firebase 'orders' data received/updated. Number of orders:", orders.length, orders);
-        } else {
-          orders = [];
-          console.log("kitchen.html: Firebase 'orders' path is empty or does not exist.");
-        }
-        showTotalOrders(); // Process orders and trigger kitchen display update
-      }, (error) => {
-        console.error("kitchen.html: Error fetching 'orders' from Firebase:", error);
-      });
-
-      // Initial fetch (though .on() should cover it)
-      ordersRef.once('value').then(snapshot => {
-        if (!orders.length && snapshot.exists()) { // Only if .on didn't populate it yet or missed initial
-             orders = snapshot.val() || [];
-             console.log("kitchen.html: Firebase 'orders' data (initial once()):", orders.length, orders);
-             showTotalOrders();
-        }
-      }).catch(error => {
-          console.error("kitchen.html: Error with initial 'orders' fetch (once):", error);
-      });
-
-      setTimeout(observeTotalOrders, 500); // Allow DOM to be fully ready
-    });
-
-    function hasThaiCharacters(str) {
-      if (typeof str !== 'string') str = String(str);
-      return /[ก-๙]/.test(str);
     }
 
-    function showTotalOrders() {
-      console.log("kitchen.html: showTotalOrders() called. Current orders count:", orders.length);
-      const totalOrdersElement = document.getElementById('totalOrders');
-      if (!totalOrdersElement) {
-        console.error("kitchen.html: FATAL - #totalOrders element not found in showTotalOrders().");
-        return;
-      }
-      totalOrdersElement.innerHTML = ''; // Clear before repopulating
-
-      const nonBatchable = []; const batchable = {};
-      const sortedLive = [...orders].sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
-
-      for (const o of sortedLive) {
-        if (!o || o.quantity <= 0) continue; // Added check for o itself
-        const name = o.item; const cmt = (o.comment || '').trim();
-        if (nonBatchableMenuItems.includes(name)) {
-          nonBatchable.push({...o, item: name, comment: cmt});
-        } else {
-          const key = `${name}-${cmt}`;
-          if (!batchable[key]) batchable[key] = {item:name,comment:cmt,regular:0,takeHome:0,timestamps:[]};
-          if(o.timestamp) batchable[key].timestamps.push(o.timestamp);
-          hasThaiCharacters(o.table) ? batchable[key].takeHome+=o.quantity : batchable[key].regular+=o.quantity;
-        }
-      }
-      const allDisplayItems = [];
-      nonBatchable.forEach(o => allDisplayItems.push({type:'nonBatchable', ...o}));
-      for (const k in batchable) {
-        const g = batchable[k];
-        const ts = g.timestamps.length > 0 ? g.timestamps.sort((x,y)=>new Date(x)-new Date(y))[0] : new Date().toISOString();
-        allDisplayItems.push({type:'batchable', ...g, timestamp:ts});
-      }
-      allDisplayItems.sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-      console.log("kitchen.html: Processed items for #totalOrders:", allDisplayItems.length);
-      if(allDisplayItems.length === 0 && orders.length > 0) {
-          console.warn("kitchen.html: No display items generated even though orders exist. Check processing logic.");
-      }
-
-
-      for (const i of allDisplayItems) {
-        const cText = i.comment ? ` (${i.comment})` : ''; let dText = '';
-        if (i.type === 'nonBatchable') {
-          dText = hasThaiCharacters(i.table) ? `${i.quantity},${i.item}${cText} 0, ก ${i.quantity}` : `${i.quantity},${i.item}${cText} ${i.quantity}`;
-        } else {
-          const t = i.regular + i.takeHome;
-          if (i.takeHome>0&&i.regular>0) dText = `${t},${i.item}${cText} ${i.regular}, ก ${i.takeHome}`;
-          else if (i.takeHome>0) dText = `${t},${i.item}${cText} 0, ก ${i.takeHome}`;
-          else dText = `${t},${i.item}${cText} ${i.regular}`;
-        }
-        const p = document.createElement('p');
-        p.textContent = dText;
-        totalOrdersElement.appendChild(p);
-      }
-      // updateKitchenDisplay(); // Let observer handle this to avoid race conditions
+    function toggleOrderReady(ids, currentStatus) {
+      const newStatus = (currentStatus === 'ready') ? 'pending' : 'ready';
+      ids.forEach(id => {
+        db.ref(BASE_PATH + 'orders/' + id + '/status').set(newStatus);
+      });
     }
 
-    function updateKitchenDisplay() {
-      console.log("kitchen.html: updateKitchenDisplay() called.");
-      ['kik', 'jeab', 'nan', 'see'].forEach(chefId => {
-          const chefOrdersContainer = document.getElementById(`chef-${chefId}`);
-          if(chefOrdersContainer) chefOrdersContainer.innerHTML = '';
+    db.ref(BASE_PATH + 'orders').on('value', (snapshot) => {
+      const data = snapshot.val();
+      currentOrders = data ? Object.entries(data).map(([id, val]) => ({ id, ...val })) : [];
+      renderOrders();
+    });
+
+    function renderOrders() {
+      ['kik', 'jeab', 'nan', 'see'].forEach(id => document.getElementById('list-' + id).innerHTML = '');
+
+      const summary = {};
+      
+      currentOrders.forEach(o => {
+        // ใช้ Logic เดียวกับ index: ถ้าเป็นเมนูทำยาก ให้แยก key ตามเวลา (แยกใบ)
+        const key = nonBatchableMenuItems.includes(o.item) 
+            ? `${o.item}|${o.timestamp}|${o.id}` // แยกใบเด็ดขาด
+            : `${o.item}|${o.comment || ""}`;   // รวมยอดถ้าชื่อ/คอมเมนต์เหมือนกัน
+
+        if (!summary[key]) {
+          summary[key] = { 
+            item: o.item, comment: o.comment, reg: 0, th: 0, 
+            ids: [], status: 'ready', minTs: o.timestamp 
+          };
+        }
+        
+        // แซงคิว: บันทึกเวลาที่เก่าที่สุดของกลุ่ม
+        if (new Date(o.timestamp) < new Date(summary[key].minTs)) {
+            summary[key].minTs = o.timestamp;
+        }
+
+        if (/[ก-๙]/.test(o.table)) summary[key].th += Number(o.quantity);
+        else summary[key].reg += Number(o.quantity);
+
+        summary[key].ids.push(o.id);
+        if (o.status !== 'ready') summary[key].status = 'pending';
       });
 
-      const totalOrdersElement = document.getElementById('totalOrders');
-      if (!totalOrdersElement) {
-          console.error("kitchen.html: #totalOrders element not found in updateKitchenDisplay().");
-          return;
-      }
+      // --- จุดสำคัญ: เรียงลำดับตามเวลา (ใครแซงคิว/สั่งก่อน อยู่บนสุด) ---
+      const sortedSummary = Object.values(summary).sort((a, b) => new Date(a.minTs) - new Date(b.minTs));
 
-      const paragraphs = totalOrdersElement.querySelectorAll('p');
-      console.log("kitchen.html: Paragraphs found in #totalOrders for display:", paragraphs.length);
+      sortedSummary.forEach(data => {
+        for (let [chef, menus] of Object.entries(chefMenus)) {
+          if (menus.some(m => data.item.includes(m))) {
+            const card = document.createElement('div');
+            const isReady = data.status === 'ready';
+            card.className = `order-card ${isReady ? 'ready' : ''}`;
+            card.onclick = () => toggleOrderReady(data.ids, data.status);
 
-      paragraphs.forEach(paragraphElement => {
-        const textContent = paragraphElement.textContent.trim();
-        if (!textContent) return;
-        // console.log("kitchen.html: Processing text for kitchen display:", textContent);
-        for (const [chefId, menuKeywords] of Object.entries(chefMenus)) {
-          if (menuKeywords.some(keyword => textContent.includes(keyword))) {
-            const chefOrdersContainer = document.getElementById(`chef-${chefId}`);
-            if (chefOrdersContainer) {
-              const itemElement = document.createElement('div');
-              itemElement.className = 'chef-summary';
-              itemElement.textContent = textContent;
-              chefOrdersContainer.appendChild(itemElement);
-              // console.log(`kitchen.html: Appended "${textContent}" to chef ${chefId}`);
-            }
+            const total = data.reg + data.th;
+            let displayTxt = `${total}, ${data.item}`;
+            if (data.comment) displayTxt += ` (${data.comment})`;
+            
+            displayTxt += ` กินร้าน ${data.reg}`;
+            if (data.th > 0) displayTxt += ` กลับบ้าน ${data.th}`;
+
+            card.innerHTML = `
+              ${isReady ? '<span class="ready-badge">เสร็จแล้ว</span>' : ''}
+              <div class="order-info">${displayTxt}</div>
+            `;
+            document.getElementById('list-' + chef).appendChild(card);
             break;
           }
         }
       });
     }
 
-    let observer = null; // Keep a reference to the observer
-
-    function observeTotalOrders() {
-        console.log("kitchen.html: observeTotalOrders() called.");
-        const totalOrdersElement = document.getElementById('totalOrders');
-        if (!totalOrdersElement) {
-            console.error("kitchen.html: Cannot observe #totalOrders, element not found in observeTotalOrders(). Retrying in 1s.");
-            setTimeout(observeTotalOrders, 1000); // Retry if DOM not ready
-            return;
-        }
-
-        if (observer) { // Disconnect previous observer if any
-            observer.disconnect();
-            console.log("kitchen.html: Disconnected previous MutationObserver.");
-        }
-
-        observer = new MutationObserver((mutationsList, obs) => {
-            console.log("kitchen.html: MutationObserver detected changes in #totalOrders.");
-            updateKitchenDisplay();
-        });
-
-        observer.observe(totalOrdersElement, {childList: true, characterData: true, subtree: true});
-        console.log("kitchen.html: MutationObserver is now observing #totalOrders.");
-        
-        // Call updateKitchenDisplay once after observer is set up, in case #totalOrders already has content
-        // that was populated before the observer was ready.
-        if(totalOrdersElement.childNodes.length > 0){
-            console.log("kitchen.html: #totalOrders has initial content, running updateKitchenDisplay.");
-            updateKitchenDisplay();
-        }
-    }
-
-    document.addEventListener('gesturestart',(e)=>e.preventDefault());
+    db.ref(".info/connected").on("value", (snap) => {
+      const txt = document.getElementById('syncStatusText');
+      txt.textContent = snap.val() ? "เชื่อมต่อครัวออนไลน์" : "ขาดการเชื่อมต่อ!";
+      document.getElementById('syncStatusBar').classList.toggle('offline', !snap.val());
+    });
   </script>
 </body>
 </html>
