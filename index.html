@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>หน้าจอครัว - นักซิ่ง (ระบบเรียงตามคิว)</title>
+  <title>หน้าจอครัว - นักซิ่ง (ระบบแยกคิวอัจฉริยะ)</title>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
   <style>
@@ -23,17 +23,27 @@
     .chef-column h3 { text-align: center; font-size: 32px; margin: 0 0 15px 0; padding-bottom: 10px; border-bottom: 4px solid #007bff; color: #007bff; }
 
     .order-card { 
-      background: #ffffff; margin-bottom: 12px; padding: 20px; border-radius: 15px; 
-      cursor: pointer; border: 3px solid #eee; border-left: 15px solid #007bff; 
-      transition: 0.1s; position: relative;
+      background: #ffffff; margin-bottom: 15px; padding: 0; border-radius: 15px; 
+      border: 3px solid #007bff; overflow: hidden; box-shadow: 0 4px 8px rgba(0,0,0,0.1);
     }
     
-    .order-info { font-size: 28px; font-weight: 900; color: #000; line-height: 1.2; text-align: left; }
+    .card-header { background: #007bff; color: white; padding: 10px 15px; font-size: 28px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+    .card-header.ready { background: #6c757d; text-decoration: line-through; opacity: 0.8; }
     
-    /* สถานะเสร็จแล้ว */
-    .order-card.ready { background: #e8f5e9; border-left-color: #27ae60; border-style: dashed; opacity: 0.5; }
-    .order-card.ready .order-info { text-decoration: line-through; color: #2e7d32; }
-    .ready-badge { float: right; background: #27ae60; color: white; font-size: 18px; padding: 5px 12px; border-radius: 50px; font-weight: bold; margin-top: -5px; }
+    .card-comment { background: #fff3cd; color: #856404; padding: 5px 15px; font-size: 20px; font-weight: bold; border-bottom: 1px solid #ffeeba; }
+
+    .table-list { padding: 5px 0; background: white; }
+    .table-item { 
+      padding: 15px 20px; font-size: 26px; font-weight: bold; border-bottom: 1px solid #eee;
+      display: flex; justify-content: space-between; align-items: center; cursor: pointer;
+    }
+    .table-item:last-child { border-bottom: none; }
+
+    .table-item.ready { background: #e8f5e9; color: #aaa; text-decoration: line-through; }
+    .table-item.ready .qty-circle { background: #aaa; }
+
+    .qty-circle { background: #007bff; color: white; min-width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+    .home-tag { color: #e74c3c; font-size: 18px; margin-left: 10px; border: 2px solid #e74c3c; padding: 2px 5px; border-radius: 5px; }
 
     .hidden { display: none !important; }
   </style>
@@ -77,7 +87,6 @@
       'see':['ลาบ','ปลาเนื้ออ่อน','ปลานิลแดดเดียว','สมุนไพร','สะเดาน้ำปลาหวาน','ตำ']
     };
 
-    // รายการเมนูที่ "ห้ามรวมยอด" ต้องแยกใบ (ก๊อปปี้จาก index)
     const nonBatchableMenuItems = ['ปลาช่อนแป๊ะซะ','ปลาช่อนแวะถัวะ','อ่อมหมู','ผักหวานไข่มดแดง','ผักหวาน','ผักหวานเห็ดเผาะ','ผักหวานไข่มดแดงใส่เห็ดเผาะ','ไข่เจียวบาว','ไข่เจียวธรรมดา','ไข่เจียวหมูสับ','ไข่เจียวไข่มดแดง'];
 
     let activeChefs = ['kik', 'jeab', 'nan', 'see'];
@@ -95,11 +104,19 @@
       }
     }
 
-    function toggleOrderReady(ids, currentStatus) {
+    function toggleItemReady(id, currentStatus) {
       const newStatus = (currentStatus === 'ready') ? 'pending' : 'ready';
-      ids.forEach(id => {
-        db.ref(BASE_PATH + 'orders/' + id + '/status').set(newStatus);
-      });
+      db.ref(BASE_PATH + 'orders/' + id + '/status').set(newStatus);
+    }
+
+    function toggleGroupReady(orderIdsStr, isAllReady) {
+        const orderIds = JSON.parse(orderIdsStr);
+        const newStatus = isAllReady ? 'pending' : 'ready';
+        const updates = {};
+        orderIds.forEach(id => {
+            updates[BASE_PATH + 'orders/' + id + '/status'] = newStatus;
+        });
+        db.ref().update(updates);
     }
 
     db.ref(BASE_PATH + 'orders').on('value', (snapshot) => {
@@ -111,55 +128,73 @@
     function renderOrders() {
       ['kik', 'jeab', 'nan', 'see'].forEach(id => document.getElementById('list-' + id).innerHTML = '');
 
-      const summary = {};
+      const summaryGroups = []; 
       
       currentOrders.forEach(o => {
-        // ใช้ Logic เดียวกับ index: ถ้าเป็นเมนูทำยาก ให้แยก key ตามเวลา (แยกใบ)
-        const key = nonBatchableMenuItems.includes(o.item) 
-            ? `${o.item}|${o.timestamp}|${o.id}` // แยกใบเด็ดขาด
-            : `${o.item}|${o.comment || ""}`;   // รวมยอดถ้าชื่อ/คอมเมนต์เหมือนกัน
+        const isNonBatchable = nonBatchableMenuItems.includes(o.item);
+        let targetGroup = null;
 
-        if (!summary[key]) {
-          summary[key] = { 
-            item: o.item, comment: o.comment, reg: 0, th: 0, 
-            ids: [], status: 'ready', minTs: o.timestamp 
-          };
-        }
-        
-        // แซงคิว: บันทึกเวลาที่เก่าที่สุดของกลุ่ม
-        if (new Date(o.timestamp) < new Date(summary[key].minTs)) {
-            summary[key].minTs = o.timestamp;
+        if (!isNonBatchable) {
+            // ค้นหาใบงานที่เมนูเหมือนกัน คอมเมนต์เหมือนกัน และ "ยังไม่มีใครถูกขีดฆ่าแม้แต่คนเดียว"
+            targetGroup = summaryGroups.find(g => 
+                g.item === o.item && 
+                (g.comment || "") === (o.comment || "") &&
+                !g.subOrders.some(so => so.status === 'ready')
+            );
         }
 
-        if (/[ก-๙]/.test(o.table)) summary[key].th += Number(o.quantity);
-        else summary[key].reg += Number(o.quantity);
-
-        summary[key].ids.push(o.id);
-        if (o.status !== 'ready') summary[key].status = 'pending';
+        if (targetGroup) {
+          targetGroup.totalQty += Number(o.quantity);
+          targetGroup.subOrders.push(o);
+          if (new Date(o.timestamp) < new Date(targetGroup.minTs)) {
+              targetGroup.minTs = o.timestamp;
+          }
+        } else {
+          summaryGroups.push({ 
+            item: o.item, 
+            comment: o.comment, 
+            totalQty: Number(o.quantity),
+            subOrders: [o],
+            minTs: o.timestamp 
+          });
+        }
       });
 
-      // --- จุดสำคัญ: เรียงลำดับตามเวลา (ใครแซงคิว/สั่งก่อน อยู่บนสุด) ---
-      const sortedSummary = Object.values(summary).sort((a, b) => new Date(a.minTs) - new Date(b.minTs));
+      const sortedSummary = summaryGroups.sort((a, b) => new Date(a.minTs) - new Date(b.minTs));
 
-      sortedSummary.forEach(data => {
+      sortedSummary.forEach(group => {
         for (let [chef, menus] of Object.entries(chefMenus)) {
-          if (menus.some(m => data.item.includes(m))) {
+          if (menus.some(m => group.item.includes(m))) {
             const card = document.createElement('div');
-            const isReady = data.status === 'ready';
-            card.className = `order-card ${isReady ? 'ready' : ''}`;
-            card.onclick = () => toggleOrderReady(data.ids, data.status);
+            card.className = 'order-card';
 
-            const total = data.reg + data.th;
-            let displayTxt = `${total}, ${data.item}`;
-            if (data.comment) displayTxt += ` (${data.comment})`;
+            const isAllReady = group.subOrders.every(so => so.status === 'ready');
+            const groupOrderIds = JSON.stringify(group.subOrders.map(so => so.id));
+
+            let headerHtml = `<div class="card-header ${isAllReady ? 'ready' : ''}" 
+                onclick='toggleGroupReady(${JSON.stringify(groupOrderIds)}, ${isAllReady})'>
+                <span>${group.item}</span>
+                <span class="qty-circle" style="background:white; color:#007bff;">${group.totalQty}</span>
+            </div>`;
             
-            displayTxt += ` กินร้าน ${data.reg}`;
-            if (data.th > 0) displayTxt += ` กลับบ้าน ${data.th}`;
+            let commentHtml = group.comment ? `<div class="card-comment">⚠️ ${group.comment}</div>` : '';
 
-            card.innerHTML = `
-              ${isReady ? '<span class="ready-badge">เสร็จแล้ว</span>' : ''}
-              <div class="order-info">${displayTxt}</div>
-            `;
+            let listHtml = '<div class="table-list">';
+            group.subOrders.forEach(order => {
+                const isReady = order.status === 'ready';
+                const isHome = /[ก-๙]/.test(order.table);
+                listHtml += `
+                    <div class="table-item ${isReady ? 'ready' : ''}" onclick="event.stopPropagation(); toggleItemReady('${order.id}', '${order.status}')">
+                        <span>
+                            โต๊ะ ${order.table} ${isHome ? '<span class="home-tag">กลับบ้าน</span>' : ''}
+                        </span>
+                        <span class="qty-circle">${order.quantity}</span>
+                    </div>
+                `;
+            });
+            listHtml += '</div>';
+
+            card.innerHTML = headerHtml + commentHtml + listHtml;
             document.getElementById('list-' + chef).appendChild(card);
             break;
           }
