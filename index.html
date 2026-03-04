@@ -14,6 +14,12 @@
     #syncStatusBar.offline { background: #c0392b; }
 
     .controls { margin: 45px 0 15px; background: #ffffff; padding: 15px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+    
+    /* ปุ่มควบคุมเสียง */
+    .sound-control { text-align: center; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 2px dashed #ddd; }
+    .sound-btn { padding: 10px 20px; font-size: 18px; font-weight: bold; border: none; border-radius: 10px; cursor: pointer; background: #f39c12; color: white; transition: 0.3s; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .sound-btn.active { background: #27ae60; }
+
     .chef-selector { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
     .selector-btn { padding: 12px 20px; font-size: 20px; font-weight: bold; border: 3px solid #ddd; border-radius: 10px; cursor: pointer; background: #f8f9fa; color: #555; transition: 0.2s; flex: 1; min-width: 100px; }
     .selector-btn.active { background: #007bff; color: white; border-color: #0056b3; box-shadow: 0 4px 12px rgba(0,123,255,0.3); }
@@ -51,6 +57,9 @@
 <body>
   <div id="syncStatusBar"><span id="syncStatusText">กำลังเชื่อมต่อ...</span></div>
   <div class="controls">
+    <div class="sound-control">
+      <button id="soundToggleBtn" class="sound-btn" onclick="toggleSound()">🔇 กดเพื่อเปิดเสียงเตือน (เจี๊ยบ/พลโท)</button>
+    </div>
     <div class="chef-selector">
       <button class="selector-btn active" onclick="toggleChef('kik', this)">กิ๊ก</button>
       <button class="selector-btn active" onclick="toggleChef('jeab', this)">เจี๊ยบ</button>
@@ -91,6 +100,84 @@
 
     let activeChefs = ['kik', 'jeab', 'nan', 'see'];
     let currentOrders = [];
+    
+    // --- ระบบเสียงแจ้งเตือน ---
+    let isSoundEnabled = false;
+    let audioCtx;
+
+    function toggleSound() {
+      const btn = document.getElementById('soundToggleBtn');
+      if (!isSoundEnabled) {
+        // จำเป็นต้องสร้าง AudioContext ตอนที่ user กดปุ่มเท่านั้น
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        isSoundEnabled = true;
+        btn.classList.add('active');
+        btn.innerHTML = '🔊 ระบบเสียงเตือน: เปิดทำงานแล้ว';
+        playDingDong(); // เทสเสียง 1 ครั้งตอนกดเปิด
+      } else {
+        isSoundEnabled = false;
+        btn.classList.remove('active');
+        btn.innerHTML = '🔇 กดเพื่อเปิดเสียงเตือน (เจี๊ยบ/พลโท)';
+      }
+    }
+
+    // ฟังก์ชันสร้างเสียง ติ๊ง-ต่อง
+    function playDingDong() {
+      if (!audioCtx) return;
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+
+      const t = audioCtx.currentTime;
+      
+      // เสียง ติ๊ง (Ding)
+      const osc1 = audioCtx.createOscillator();
+      const gain1 = audioCtx.createGain();
+      osc1.connect(gain1);
+      gain1.connect(audioCtx.destination);
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(783.99, t); // โน้ต G5
+      gain1.gain.setValueAtTime(1, t);
+      gain1.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
+      osc1.start(t);
+      osc1.stop(t + 0.5);
+
+      // เสียง ต่อง (Dong)
+      const osc2 = audioCtx.createOscillator();
+      const gain2 = audioCtx.createGain();
+      osc2.connect(gain2);
+      gain2.connect(audioCtx.destination);
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(659.25, t + 0.2); // โน้ต E5
+      gain2.gain.setValueAtTime(1, t + 0.2);
+      gain2.gain.exponentialRampToValueAtTime(0.01, t + 1.0);
+      osc2.start(t + 0.2);
+      osc2.stop(t + 1.0);
+    }
+
+    // ลูปเช็คงานทุกๆ 1 นาที (60000 มิลลิวินาที)
+    setInterval(() => {
+      if (!isSoundEnabled) return; // ถ้ายังไม่เปิดเสียง ให้ข้ามไป
+
+      let hasPendingWork = false;
+
+      // ตรวจสอบออเดอร์ทั้งหมด
+      currentOrders.forEach(o => {
+        if (o.status !== 'ready') {
+          // เช็คว่าเมนูนี้เป็นของ เจี๊ยบ หรือ พลโท(nan) หรือไม่?
+          const isJeab = chefMenus['jeab'].some(m => o.item.includes(m));
+          const isNan = chefMenus['nan'].some(m => o.item.includes(m));
+          
+          if (isJeab || isNan) {
+            hasPendingWork = true;
+          }
+        }
+      });
+
+      // ถ้าเจอออเดอร์ค้างของ 2 คนนี้ ให้ส่งเสียง
+      if (hasPendingWork) {
+        playDingDong();
+      }
+    }, 600); 
+    // ----------------------
 
     function toggleChef(chef, btn) {
       if (activeChefs.includes(chef)) {
@@ -135,7 +222,6 @@
         let targetGroup = null;
 
         if (!isNonBatchable) {
-            // ค้นหาใบงานที่เมนูเหมือนกัน คอมเมนต์เหมือนกัน และ "ยังไม่มีใครถูกขีดฆ่าแม้แต่คนเดียว"
             targetGroup = summaryGroups.find(g => 
                 g.item === o.item && 
                 (g.comment || "") === (o.comment || "") &&
